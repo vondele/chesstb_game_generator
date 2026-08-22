@@ -44,9 +44,9 @@ With the default Makefile settings the expected layout is:
 
 ```text
 /workspace/
-├── generate-cpp/      # this repository
-├── chesstb/           # tablebase probing library
-└── chess-library/     # chess board/move library
+├── chesstb_game_generator/      # this repository
+├── chesstb/                     # tablebase probing library
+└── chess-library/               # chess board/move library
 ```
 
 ### Compiling
