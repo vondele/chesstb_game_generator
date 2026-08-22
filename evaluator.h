@@ -5,12 +5,15 @@
 #include <probe/probe.h>
 
 #include "bridge.h"
+#include "material_key.h"
 #include "timers.h"
 
 #include <algorithm>
 #include <chrono>
 #include <limits>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace evaluator {
@@ -53,7 +56,18 @@ inline WDL_Entry probe_wdl_board(Timers* timers, Probe_Tables& tables, const che
 
     // WDL is independent of the halfmove clock; the chesstb wrapper rejects
     // nonzero rule50 for Fathom semantics, so pass 0.
-    WDL_Entry w = tables.probe_wdl(pos, ep, 0);
+    auto [wdl_reason, wdl_result] = board.isGameOver();
+    WDL_Entry w;
+    if (wdl_result != chess::GameResult::NONE) {
+        // Terminal position (checkmate/stalemate/insufficient material/50MR).
+        switch (wdl_result) {
+            case chess::GameResult::WIN:  w = WDL_Entry::WIN;  break;
+            case chess::GameResult::LOSE: w = WDL_Entry::LOSE; break;
+            default:                      w = WDL_Entry::DRAW; break;
+        }
+    } else {
+        w = tables.probe_wdl(pos, ep, 0);
+    }
 
     if (timers) {
         auto t1 = std::chrono::steady_clock::now();
@@ -85,6 +99,25 @@ inline ProbeInfo probe_board(Timers* timers, Probe_Tables& tables, const chess::
         ep = bridge::to_chesstb_square(board.enpassantSq());
 
     Probe_Result r = tables.probe(pos, ep, board.halfMoveClock());
+    if (r.status == Probe_Result::Status::TB_NOT_FOUND) {
+        // Terminal positions (KK, stalemate, checkmate, 50MR draw) do not need
+        // a table.  Anything else that is missing a table is a configuration
+        // error and should fail loudly.
+        auto [reason, result] = board.isGameOver();
+        if (result != chess::GameResult::NONE) {
+            ProbeInfo info;
+            switch (result) {
+                case chess::GameResult::WIN:  info.result = Result::WIN;  break;
+                case chess::GameResult::LOSE: info.result = Result::LOSS; break;
+                default:                      info.result = Result::DRAW; break;
+            }
+            return info;
+        }
+        throw std::runtime_error("Tablebase table missing for position " +
+                                 board.getFen() + " (material " +
+                                 profile_from_board(board) + ")");
+    }
+
     ProbeInfo info;
 
     if (r.status == Probe_Result::Status::OK) {
