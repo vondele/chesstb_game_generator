@@ -20,6 +20,7 @@ RUST_LOG=hf_mount=debug hf-mount \
   --read-only \
   --cache-dir /mnt/ssd/chesstb/hf_cache \
   --cache-size 50000000000 \
+  --read-fetch-timeout-ms 120000 \
   bucket noobpwnftw/chesstb /mnt/ssd/chesstb/hf
 ```
 
