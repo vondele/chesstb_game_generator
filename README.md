@@ -93,6 +93,7 @@ ignored.
 | `--cache MiB` | `8192` | Decoded block cache budget for chesstb. |
 | `--seed N` | random | RNG seed. |
 | `--endgame-counts FILE` | none | Per-material frequency weights. Listed materials are sampled with probability proportional to their count; unlisted pool materials receive weight 0. |
+| `--input-fens FILE` | none | Read starting FENs from a file (one per line) instead of generating random positions. Unsupported positions (e.g. castling rights, material not in pool) are skipped. Mutually exclusive with `--endgame-counts`. |
 
 ### Examples
 
@@ -119,6 +120,12 @@ Generate games with starting-material frequencies taken from a counts file:
 
 ```bash
 ./generate --count 1000 --endgame-counts endgames_counts.txt --output weighted.pgn
+```
+
+Generate games from a file of starting FENs:
+
+```bash
+./generate --count 10 --input-fens positions.fens --max-pieces 6 --output from_fens.pgn
 ```
 
 ## Implementation Details and Assumptions

@@ -149,15 +149,6 @@ inline std::optional<chess::Board> generate(const std::string& material,
 
 }  // namespace random_board
 
-constexpr int MAX_SLOT_ATTEMPTS = 100000;
-
-inline uint64_t splitmix64(uint64_t x) {
-    x += 0x9e3779b97f4a7c15ULL;
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    return x ^ (x >> 31);
-}
-
 inline bool allowed_result(evaluator::Result res, const std::set<char>& allowed) {
     switch (res) {
         case evaluator::Result::WIN: return allowed.count('W');
@@ -165,6 +156,129 @@ inline bool allowed_result(evaluator::Result res, const std::set<char>& allowed)
         case evaluator::Result::LOSS: return allowed.count('L');
     }
     return false;
+}
+
+// Load non-empty, non-comment FEN lines from a file.
+inline std::vector<std::string> load_fens(const fs::path& path, std::string& error) {
+    std::ifstream in(path);
+    if (!in) {
+        error = "Failed to open FEN file: " + path.string();
+        return {};
+    }
+
+    std::vector<std::string> fens;
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        if (line[start] == '#' || line[start] == ';') continue;
+        size_t end = line.find_last_not_of(" \t\r\n");
+        fens.push_back(line.substr(start, end - start + 1));
+    }
+
+    if (fens.empty()) {
+        error = "No FENs found in " + path.string();
+        return {};
+    }
+    return fens;
+}
+
+inline char piece_type_to_char(chess::PieceType pt, bool white) {
+    char c;
+    switch (pt.internal()) {
+        case chess::PieceType::QUEEN:  c = 'Q'; break;
+        case chess::PieceType::ROOK:   c = 'R'; break;
+        case chess::PieceType::BISHOP: c = 'B'; break;
+        case chess::PieceType::KNIGHT: c = 'N'; break;
+        case chess::PieceType::PAWN:   c = 'P'; break;
+        default:                       return '?';
+    }
+    return white ? c : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
+
+// Build a "KRNvKNN"-style material string from a board. This preserves
+// orientation, unlike the canonical chesstb profile name.
+inline std::string material_string_from_board(const chess::Board& board) {
+    std::string w, b;
+    for (auto pt : {chess::PieceType::QUEEN, chess::PieceType::ROOK,
+                    chess::PieceType::BISHOP, chess::PieceType::KNIGHT,
+                    chess::PieceType::PAWN}) {
+        w += std::string(board.pieces(pt, chess::Color::WHITE).count(),
+                         piece_type_to_char(pt, true));
+        b += std::string(board.pieces(pt, chess::Color::BLACK).count(),
+                         piece_type_to_char(pt, false));
+    }
+    return "K" + w + "vK" + b;
+}
+
+// Check whether a parsed board is supported by the loaded tablebase.
+// Assumes the FEN is a legal chess position; only TB-specific limits are checked.
+inline bool is_fen_tb_supported(const chess::Board& board,
+                                const std::set<std::string>& canonical_materials,
+                                std::string& reason) {
+    auto cr = board.castlingRights();
+    for (auto color : {chess::Color::WHITE, chess::Color::BLACK}) {
+        for (auto side : {chess::Board::CastlingRights::Side::KING_SIDE,
+                          chess::Board::CastlingRights::Side::QUEEN_SIDE}) {
+            if (cr.has(color, side)) {
+                reason = "castling rights not supported by tablebase";
+                return false;
+            }
+        }
+    }
+
+    std::string canonical = profile_from_board(board);
+    if (!canonical_materials.count(canonical)) {
+        reason = "material " + canonical + " not in pool or no table available";
+        return false;
+    }
+    return true;
+}
+
+inline std::optional<SlotState> create_slot_from_fen(size_t slot,
+                                                     const std::string& fen,
+                                                     const std::set<std::string>& canonical_materials,
+                                                     const std::set<char>& allowed,
+                                                     Probe_Tables& tables,
+                                                     const std::string& date,
+                                                     Timers* timers) {
+    chess::Board board;
+    if (!board.setFen(fen)) {
+        return std::nullopt;
+    }
+
+    std::string reason;
+    if (!is_fen_tb_supported(board, canonical_materials, reason)) {
+        return std::nullopt;
+    }
+
+    evaluator::ProbeInfo initial = evaluator::probe_board(timers, tables, board);
+    if (!allowed_result(initial.result, allowed)) {
+        return std::nullopt;
+    }
+
+    SlotState state;
+    state.slot = slot;
+    state.game.round = slot + 1;
+    state.board = board;
+    state.plies = 0;
+    state.attempt = 0;
+    state.initial_result = initial.result;
+    state.game.material = material_string_from_board(board);
+    state.game.fen = board.getFen();
+    state.game.date = date;
+    state.game.start_move_number = board.fullMoveNumber();
+    state.game.white_starts = (board.sideToMove() == chess::Color::WHITE);
+    return state;
+}
+
+constexpr int MAX_SLOT_ATTEMPTS = 100000;
+
+inline uint64_t splitmix64(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
 }
 
 inline std::optional<SlotState> generate_slot_start(size_t slot,

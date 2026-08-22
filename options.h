@@ -23,6 +23,7 @@ struct Options {
     size_t cache_mib = 8192;
     unsigned seed = 0;
     fs::path endgame_counts_path;
+    fs::path input_fens_path;
 };
 
 inline Options parse_args(int argc, char** argv) {
@@ -67,6 +68,8 @@ inline Options parse_args(int argc, char** argv) {
             opt.seed = static_cast<unsigned>(std::strtoul(argv[++i], nullptr, 10));
         } else if (a == "--endgame-counts" && i + 1 < argc) {
             opt.endgame_counts_path = argv[++i];
+        } else if (a == "--input-fens" && i + 1 < argc) {
+            opt.input_fens_path = argv[++i];
         } else if (a == "--help" || a == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "  --chesstb DIR       chesstb root with wdl/dtc/dtm50 subdirs\n"
@@ -80,7 +83,8 @@ inline Options parse_args(int argc, char** argv) {
                       << "  --max-pieces N      maximum total pieces (default 6)\n"
                       << "  --cache MiB         decoded block cache budget (default 8192)\n"
                       << "  --seed N            RNG seed\n"
-                      << "  --endgame-counts FILE   per-material frequency weights\n";
+                      << "  --endgame-counts FILE   per-material frequency weights\n"
+                      << "  --input-fens FILE   read starting FENs from file (one per line)\n";
             std::exit(0);
         } else {
             std::cerr << "Unknown option: " << a << "\n";

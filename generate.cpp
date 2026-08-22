@@ -128,7 +128,8 @@ void process_batch(const std::string& key,
 
     // Finalize finished slots.  Short draws are regenerated with the next attempt.
     for (SlotState& state : finished) {
-        if (state.initial_result == evaluator::Result::DRAW && state.plies < opt.min_plies) {
+        if (state.initial_result == evaluator::Result::DRAW && state.plies < opt.min_plies &&
+            opt.input_fens_path.empty()) {
             auto regen = generate_slot_start(state.slot, state.attempt + 1, opt, materials,
                                              allowed, tables, date, &timers,
                                              material_sampler);
@@ -176,6 +177,10 @@ int main(int argc, char** argv) {
     try {
         attack_init();
         Options opt = parse_args(argc, argv);
+        if (!opt.input_fens_path.empty() && !opt.endgame_counts_path.empty()) {
+            std::cerr << "Error: --input-fens and --endgame-counts are mutually exclusive.\n";
+            return 1;
+        }
         if (opt.seed == 0) opt.seed = std::random_device{}();
 
         auto materials = material::generate_combinations(opt.max_pieces,
@@ -191,6 +196,11 @@ int main(int argc, char** argv) {
             std::cerr << "Error: No requested materials have available chesstb tables in "
                       << opt.chesstb_dir / "wdl" << "\n";
             return 1;
+        }
+
+        std::set<std::string> canonical_materials;
+        for (const auto& mat : materials) {
+            canonical_materials.insert(material::canonical_chesstb_name(mat));
         }
 
         const material::WeightedSampler* material_sampler_ptr = nullptr;
@@ -244,8 +254,34 @@ int main(int argc, char** argv) {
 
         auto start = std::chrono::steady_clock::now();
 
-        // Phase 1: generate all starting positions in parallel.
-        {
+        // Phase 1: produce starting positions.
+        if (!opt.input_fens_path.empty()) {
+            std::string err;
+            auto fens = load_fens(opt.input_fens_path, err);
+            if (fens.empty()) {
+                throw std::runtime_error(err);
+            }
+            std::cout << "Loaded " << fens.size() << " FENs from " << opt.input_fens_path
+                      << ".\n";
+
+            std::vector<SlotState> starts;
+            starts.reserve(opt.count);
+            for (const auto& fen : fens) {
+                if (starts.size() >= opt.count) break;
+                auto state = create_slot_from_fen(starts.size(), fen, canonical_materials,
+                                                  allowed, tables, date, &timers);
+                if (!state) continue;
+                starts.push_back(std::move(*state));
+            }
+            if (starts.size() < opt.count) {
+                throw std::runtime_error("Only " + std::to_string(starts.size()) +
+                                         " valid FENs found, needed " + std::to_string(opt.count));
+            }
+            for (auto& s : starts) {
+                queues.push(profile_from_board(s.board), std::move(s));
+            }
+        } else {
+            // Phase 1: generate all starting positions in parallel.
             std::vector<std::optional<SlotState>> starts(opt.count);
             std::atomic<size_t> next_slot{0};
             std::atomic<bool> gen_error{false};
