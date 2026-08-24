@@ -1,7 +1,6 @@
 #pragma once
 
 #include <chess.hpp>
-#include <chess/attack.h>
 #include <probe/probe.h>
 
 #include "bridge.h"

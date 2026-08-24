@@ -1,5 +1,4 @@
 #include <chess.hpp>
-#include <chess/attack.h>
 #include <probe/probe.h>
 
 #include "evaluator.h"
@@ -175,7 +174,6 @@ void worker_loop(const Options& opt,
 
 int main(int argc, char** argv) {
     try {
-        attack_init();
         Options opt = parse_args(argc, argv);
         if (!opt.input_fens_path.empty() && !opt.endgame_counts_path.empty()) {
             std::cerr << "Error: --input-fens and --endgame-counts are mutually exclusive.\n";
