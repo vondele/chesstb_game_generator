@@ -49,33 +49,33 @@ inline Result wdl_to_result(WDL_Entry w) {
 inline WDL_Entry probe_wdl_board(Timers* timers, Probe_Tables& tables, const chess::Board& board) {
     auto t0 = std::chrono::steady_clock::now();
 
-    Position pos = bridge::to_chesstb_position(board);
-    Square ep = SQ_END;
-    if (board.enpassantSq() != chess::Square::NO_SQ)
-        ep = bridge::to_chesstb_square(board.enpassantSq());
+    try {
+        Position pos = bridge::to_chesstb_position(board);
+        Square ep = SQ_END;
+        if (board.enpassantSq() != chess::Square::NO_SQ)
+            ep = bridge::to_chesstb_square(board.enpassantSq());
 
-    // WDL is independent of the halfmove clock; the chesstb wrapper rejects
-    // nonzero rule50 for Fathom semantics, so pass 0.
-    auto [wdl_reason, wdl_result] = board.isGameOver();
-    WDL_Entry w;
-    if (wdl_result != chess::GameResult::NONE) {
-        // Terminal position (checkmate/stalemate/insufficient material/50MR).
-        switch (wdl_result) {
-            case chess::GameResult::WIN:  w = WDL_Entry::WIN;  break;
-            case chess::GameResult::LOSE: w = WDL_Entry::LOSE; break;
-            default:                      w = WDL_Entry::DRAW; break;
+        // WDL is independent of the halfmove clock; the chesstb wrapper rejects
+        // nonzero rule50 for Fathom semantics, so pass 0.
+        WDL_Entry w = tables.probe_wdl(pos, ep, 0);
+
+        if (w == WDL_Entry::ILLEGAL && board.isGameOver().second == chess::GameResult::NONE) {
+            throw std::runtime_error("Tablebase WDL table missing for position " +
+                                     board.getFen() + " (material " +
+                                     profile_from_board(board) + ")");
         }
-    } else {
-        w = tables.probe_wdl(pos, ep, 0);
-    }
 
-    if (timers) {
-        auto t1 = std::chrono::steady_clock::now();
-        timers->wdl_probe_ns.fetch_add(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-        timers->wdl_probe_count.fetch_add(1);
+        if (timers) {
+            auto t1 = std::chrono::steady_clock::now();
+            timers->wdl_probe_ns.fetch_add(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+            timers->wdl_probe_count.fetch_add(1);
+        }
+        return w;
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("probe_wdl_board failed for ") + board.getFen() +
+                                 ": " + e.what());
     }
-    return w;
 }
 
 // Sign a distance value according to the WDL result.  CURSED_WIN and
@@ -93,13 +93,14 @@ inline int signed_distance(uint16_t value, WDL_Entry wdl) {
 inline ProbeInfo probe_board(Timers* timers, Probe_Tables& tables, const chess::Board& board) {
     auto t0 = std::chrono::steady_clock::now();
 
-    Position pos = bridge::to_chesstb_position(board);
-    Square ep = SQ_END;
-    if (board.enpassantSq() != chess::Square::NO_SQ)
-        ep = bridge::to_chesstb_square(board.enpassantSq());
+    try {
+        Position pos = bridge::to_chesstb_position(board);
+        Square ep = SQ_END;
+        if (board.enpassantSq() != chess::Square::NO_SQ)
+            ep = bridge::to_chesstb_square(board.enpassantSq());
 
-    Probe_Result r = tables.probe(pos, ep, board.halfMoveClock());
-    if (r.status == Probe_Result::Status::TB_NOT_FOUND) {
+        Probe_Result r = tables.probe(pos, ep, board.halfMoveClock());
+        if (r.status == Probe_Result::Status::TB_NOT_FOUND) {
         // Terminal positions (KK, stalemate, checkmate, 50MR draw) do not need
         // a table.  Anything else that is missing a table is a configuration
         // error and should fail loudly.
@@ -145,6 +146,10 @@ inline ProbeInfo probe_board(Timers* timers, Probe_Tables& tables, const chess::
         timers->probe_count.fetch_add(1);
     }
     return info;
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("probe_board failed for ") + board.getFen() +
+                                 ": " + e.what());
+    }
 }
 
 // Piece values for static eval.

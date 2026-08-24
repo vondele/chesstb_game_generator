@@ -216,32 +216,38 @@ remain visible.
 
 ## Benchmarks
 
-All runs below use `--max-pieces 6 --seed 123` and the rule-50-aware DTM50
-move selector.
+All runs below use `--max-pieces 6 --min-plies 5 --seed 123` with the
+rule-50-aware DTM50 move selector. They were executed against a local copy of
+the shipping-format tables (`wdl/`, `dtc/`, `dtm50/`) and were preceded by a
+single shared 1000-game warm-up run (`--count 1000 --concurrency 8 --cache 8192`)
+to populate the OS page cache.
 
-| Count | Concurrency | `--cache` | Wall time | Aggregate probe throughput | Latency | Peak RSS |
+| Count | Concurrency | `--cache` | Wall time | Distance probe throughput | Latency | Peak RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| 100 | 8 | 8192 MiB | 28.5 s | 200.9 probes/s | 4.977 ms | 14.6 GB |
-| 500 | 8 | 8192 MiB | 153.8 s | 149.4 probes/s | 6.694 ms | 35.5 GB |
-| 1000 | 4 | 8192 MiB | 412.7 s | 163.4 probes/s | 6.122 ms | 42.2 GB |
-| 1000 | 8 | 8192 MiB | 233.2 s | 155.3 probes/s | 6.440 ms | 48.0 GB |
-| 1000 | 16 | 8192 MiB | 152.1 s | 147.3 probes/s | 6.790 ms | 53.5 GB |
-| 1000 | 8 | 32768 MiB | 206.0 s | 173.3 probes/s | 5.772 ms | 76.1 GB |
-| 5000 | 8 | 8192 MiB | 931.3 s | 184.7 probes/s | 5.413 ms | 110.5 GB |
+| 100 | 8 | 8192 MiB | 27.0 s | 199.0 probes/s | 5.026 ms | 19.2 GB |
+| 500 | 8 | 8192 MiB | 156.2 s | 147.1 probes/s | 6.798 ms | 46.7 GB |
+| 1000 | 4 | 8192 MiB | 412.3 s | 162.0 probes/s | 6.172 ms | 54.8 GB |
+| 1000 | 8 | 8192 MiB | 241.6 s | 152.1 probes/s | 6.576 ms | 59.3 GB |
+| 1000 | 16 | 8192 MiB | 162.9 s | 136.1 probes/s | 7.345 ms | 65.6 GB |
+| 1000 | 8 | 32768 MiB | 202.9 s | 169.7 probes/s | 5.892 ms | 113.5 GB |
+| 5000 | 8 | 8192 MiB | 947.0 s | 180.3 probes/s | 5.547 ms | 116.0 GB |
+| 5000 | 8 | 32768 MiB | 830.0 s | 202.9 probes/s | 4.929 ms | 116.6 GB |
+| 10000 | 8 | 32768 MiB | 1493.9 s | 222.9 probes/s | 4.485 ms | 116.0 GB |
 
 Notes:
 
 - Move selection uses the rule-50-aware DTM50 metric, so mate announcements in
-  the PGN match the actual game outcome (verified: 0 inconsistencies in 1000
-  games).
-- All 1000-game outputs are byte-identical across thread counts and cache sizes
-  for the same code version (verified with `diff` between 4, 8, and 16 threads
-  and between 8 GiB and 32 GiB caches).
+  the PGN match the actual game outcome.
+- 1000-game outputs are byte-identical across thread counts and cache sizes for
+  the same code version (verified with `diff` between 4, 8, and 16 threads and
+  between 8 GiB and 32 GiB caches).
 - The WDL-first move filter skips most distance probes for losing positions and
-  many distance probes for drawn positions.  The reported per-probe latency is
-  higher than the naive full-probe version because the remaining distance probes
-  face more cache pressure from the cheap WDL probes; the net effect is still a
-  roughly 25-30% wall-time reduction for mixed `W,D,L` workloads.
-- Using 16 threads reduces wall time but lowers per-probe throughput due to
-  scheduler contention; a larger cache improves throughput at the cost of
-  memory.
+  many distance probes for drawn positions. The reported distance-probe latency
+  is higher than a naive full-probe version because the remaining distance
+  probes face more cache pressure from the cheap WDL probes; the net effect is
+  still a wall-time reduction for mixed `W,D,L` workloads.
+- Using 16 threads lowers per-probe throughput compared to 8 threads due to
+  scheduler contention, even though wall time improves.
+- A larger `--cache` improves throughput at the cost of memory. RSS flattens out
+  once the working set is cached; the 5000- and 10000-game runs use ~116 GB
+  regardless of game count.
