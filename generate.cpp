@@ -228,9 +228,10 @@ int main(int argc, char** argv) {
                   << " plies) on " << opt.concurrency << " cores...\n";
 
         Probe_Tables tables;
-        tables.add_wdl_path(opt.chesstb_dir / "wdl");
-        tables.add_dtc_path(opt.chesstb_dir / "dtc");
-        tables.add_dtm50_path(opt.chesstb_dir / "dtm50");
+        if (!tables.init(opt.chesstb_dir)) {
+            std::cerr << "Error: No chesstb tables found under " << opt.chesstb_dir << "\n";
+            return 1;
+        }
         tables.set_block_cache_bytes(opt.cache_mib * 1024 * 1024);
 
         if (!opt.output.parent_path().empty()) {
