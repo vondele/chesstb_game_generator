@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <chess/piece_config.h>
+#include "chesstb.h"
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -29,30 +29,30 @@ inline std::string canonical_chesstb_name(const std::string& mat) {
     std::string w = (v == std::string::npos) ? "" : mat.substr(1, v - 1);
     std::string b = (v == std::string::npos) ? "" : mat.substr(v + 2);
 
-    std::array<Piece, MAX_MAN> pieces;
+    std::array<chesstb::Piece, chesstb::MAX_MAN> pieces;
     size_t n = 0;
-    pieces[n++] = WHITE_KING;
+    pieces[n++] = chesstb::WHITE_KING;
     for (char c : w) {
         switch (c) {
-            case 'Q': pieces[n++] = WHITE_QUEEN; break;
-            case 'R': pieces[n++] = WHITE_ROOK; break;
-            case 'B': pieces[n++] = WHITE_BISHOP; break;
-            case 'N': pieces[n++] = WHITE_KNIGHT; break;
-            case 'P': pieces[n++] = WHITE_PAWN; break;
+            case 'Q': pieces[n++] = chesstb::WHITE_QUEEN; break;
+            case 'R': pieces[n++] = chesstb::WHITE_ROOK; break;
+            case 'B': pieces[n++] = chesstb::WHITE_BISHOP; break;
+            case 'N': pieces[n++] = chesstb::WHITE_KNIGHT; break;
+            case 'P': pieces[n++] = chesstb::WHITE_PAWN; break;
         }
     }
-    pieces[n++] = BLACK_KING;
+    pieces[n++] = chesstb::BLACK_KING;
     for (char c : b) {
         switch (c) {
-            case 'Q': pieces[n++] = BLACK_QUEEN; break;
-            case 'R': pieces[n++] = BLACK_ROOK; break;
-            case 'B': pieces[n++] = BLACK_BISHOP; break;
-            case 'N': pieces[n++] = BLACK_KNIGHT; break;
-            case 'P': pieces[n++] = BLACK_PAWN; break;
+            case 'Q': pieces[n++] = chesstb::BLACK_QUEEN; break;
+            case 'R': pieces[n++] = chesstb::BLACK_ROOK; break;
+            case 'B': pieces[n++] = chesstb::BLACK_BISHOP; break;
+            case 'N': pieces[n++] = chesstb::BLACK_KNIGHT; break;
+            case 'P': pieces[n++] = chesstb::BLACK_PAWN; break;
         }
     }
 
-    Piece_Config ps(Const_Span<Piece>(pieces.data(), n));
+    chesstb::Piece_Config ps(chesstb::Const_Span<chesstb::Piece>(pieces.data(), n));
     return ps.name();
 }
 

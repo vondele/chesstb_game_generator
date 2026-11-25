@@ -10,7 +10,7 @@
 #include "timers.h"
 
 #include <chess.hpp>
-#include <probe/probe.h>
+#include "chesstb.h"
 
 #include <algorithm>
 #include <array>
@@ -216,17 +216,6 @@ inline std::string material_string_from_board(const chess::Board& board) {
 inline bool is_fen_tb_supported(const chess::Board& board,
                                 const std::set<std::string>& canonical_materials,
                                 std::string& reason) {
-    auto cr = board.castlingRights();
-    for (auto color : {chess::Color::WHITE, chess::Color::BLACK}) {
-        for (auto side : {chess::Board::CastlingRights::Side::KING_SIDE,
-                          chess::Board::CastlingRights::Side::QUEEN_SIDE}) {
-            if (cr.has(color, side)) {
-                reason = "castling rights not supported by tablebase";
-                return false;
-            }
-        }
-    }
-
     std::string canonical = profile_from_board(board);
     if (!canonical_materials.count(canonical)) {
         reason = "material " + canonical + " not in pool or no table available";
@@ -239,7 +228,7 @@ inline std::optional<SlotState> create_slot_from_fen(size_t slot,
                                                      const std::string& fen,
                                                      const std::set<std::string>& canonical_materials,
                                                      const std::set<char>& allowed,
-                                                     Probe_Tables& tables,
+                                                     chesstb::Probe_Tables& tables,
                                                      const std::string& date,
                                                      Timers* timers) {
     chess::Board board;
@@ -250,6 +239,12 @@ inline std::optional<SlotState> create_slot_from_fen(size_t slot,
     std::string reason;
     if (!is_fen_tb_supported(board, canonical_materials, reason)) {
         return std::nullopt;
+    }
+
+    if (!board.castlingRights().isEmpty()) {
+        if (tables.probe_wdl(bridge::to_chesstb_position(board), bridge::ep_square(board), 0)
+            == chesstb::WDL_Entry::ILLEGAL)
+            return std::nullopt;
     }
 
     evaluator::ProbeInfo initial = evaluator::probe_board(timers, tables, board);
@@ -286,7 +281,7 @@ inline std::optional<SlotState> generate_slot_start(size_t slot,
                                                      const Options& opt,
                                                      const std::vector<std::string>& materials,
                                                      const std::set<char>& allowed,
-                                                     Probe_Tables& tables,
+                                                     chesstb::Probe_Tables& tables,
                                                      const std::string& date,
                                                      Timers* timers,
                                                      const material::WeightedSampler* material_sampler = nullptr) {

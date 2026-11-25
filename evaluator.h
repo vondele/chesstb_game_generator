@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chess.hpp>
-#include <probe/probe.h>
+#include "chesstb.h"
 
 #include "bridge.h"
 #include "material_key.h"
@@ -30,11 +30,11 @@ struct ProbeInfo {
     Result dtm50_result = Result::DRAW; // rule-50-aware result (cursed/blessed -> DRAW).
 };
 
-inline Result wdl_to_result(WDL_Entry w) {
+inline Result wdl_to_result(chesstb::WDL_Entry w) {
     switch (w) {
-        case WDL_Entry::WIN:
+        case chesstb::WDL_Entry::WIN:
             return Result::WIN;
-        case WDL_Entry::LOSE:
+        case chesstb::WDL_Entry::LOSE:
             return Result::LOSS;
         default:
             // DRAW, CURSED_WIN, and BLESSED_LOSS are all draws in practice.
@@ -45,20 +45,18 @@ inline Result wdl_to_result(WDL_Entry w) {
     }
 }
 
-inline WDL_Entry probe_wdl_board(Timers* timers, Probe_Tables& tables, const chess::Board& board) {
+inline chesstb::WDL_Entry probe_wdl_board(Timers* timers, chesstb::Probe_Tables& tables, const chess::Board& board) {
     auto t0 = std::chrono::steady_clock::now();
 
     try {
-        Position pos = bridge::to_chesstb_position(board);
-        Square ep = SQ_END;
-        if (board.enpassantSq() != chess::Square::NO_SQ)
-            ep = bridge::to_chesstb_square(board.enpassantSq());
+        chesstb::Position pos = bridge::to_chesstb_position(board);
+        const chesstb::Square ep = bridge::ep_square(board);
 
         // WDL is independent of the halfmove clock; the chesstb wrapper rejects
         // nonzero rule50 for Fathom semantics, so pass 0.
-        WDL_Entry w = tables.probe_wdl(pos, ep, 0);
+        chesstb::WDL_Entry w = tables.probe_wdl(pos, ep, 0);
 
-        if (w == WDL_Entry::ILLEGAL && board.isGameOver().second == chess::GameResult::NONE) {
+        if (w == chesstb::WDL_Entry::ILLEGAL && board.isGameOver().second == chess::GameResult::NONE) {
             throw std::runtime_error("Tablebase WDL table missing for position " +
                                      board.getFen() + " (material " +
                                      profile_from_board(board) + ")");
@@ -80,26 +78,24 @@ inline WDL_Entry probe_wdl_board(Timers* timers, Probe_Tables& tables, const che
 // Sign a distance value according to the WDL result.  CURSED_WIN and
 // BLESSED_LOSS are treated as draws here (consistent with wdl_to_result),
 // so they produce a signed distance of 0.
-inline int signed_distance(uint16_t value, WDL_Entry wdl) {
+inline int signed_distance(uint16_t value, chesstb::WDL_Entry wdl) {
     int v = static_cast<int>(value);
     switch (wdl) {
-        case WDL_Entry::WIN:  return v;
-        case WDL_Entry::LOSE: return -v;
+        case chesstb::WDL_Entry::WIN:  return v;
+        case chesstb::WDL_Entry::LOSE: return -v;
         default:              return 0;
     }
 }
 
-inline ProbeInfo probe_board(Timers* timers, Probe_Tables& tables, const chess::Board& board) {
+inline ProbeInfo probe_board(Timers* timers, chesstb::Probe_Tables& tables, const chess::Board& board) {
     auto t0 = std::chrono::steady_clock::now();
 
     try {
-        Position pos = bridge::to_chesstb_position(board);
-        Square ep = SQ_END;
-        if (board.enpassantSq() != chess::Square::NO_SQ)
-            ep = bridge::to_chesstb_square(board.enpassantSq());
+        chesstb::Position pos = bridge::to_chesstb_position(board);
+        const chesstb::Square ep = bridge::ep_square(board);
 
-        Probe_Result r = tables.probe(pos, ep, board.halfMoveClock());
-        if (r.status == Probe_Result::Status::TB_NOT_FOUND) {
+        chesstb::Probe_Result r = tables.probe(pos, ep, board.halfMoveClock());
+        if (r.wdl == chesstb::WDL_Entry::ILLEGAL) {
         // Terminal positions (KK, stalemate, checkmate, 50MR draw) do not need
         // a table.  Anything else that is missing a table is a configuration
         // error and should fail loudly.
@@ -120,22 +116,20 @@ inline ProbeInfo probe_board(Timers* timers, Probe_Tables& tables, const chess::
 
     ProbeInfo info;
 
-    if (r.status == Probe_Result::Status::OK) {
-        info.result = wdl_to_result(r.wdl);
-        info.has_dtc = r.has_dtc;
-        info.has_dtm = r.has_dtm;
-        if (r.has_dtc) info.dtc = signed_distance(r.dtc, r.wdl);
-        if (r.has_dtm) info.dtm = signed_distance(r.dtm, r.wdl);
+    info.result = wdl_to_result(r.wdl);
+    info.has_dtc = r.has_dtc;
+    info.has_dtm = r.has_dtm;
+    if (r.has_dtc) info.dtc = signed_distance(r.dtc, r.wdl);
+    if (r.has_dtm) info.dtm = signed_distance(r.dtm, r.wdl);
 
-        if (r.has_dtm50) {
-            info.has_dtm50 = true;
-            // Treat cursed/blessed as DRAW under the current 50-move counter.
-            WDL_Entry w50 = r.dtm50_wdl;
-            if (w50 == WDL_Entry::CURSED_WIN || w50 == WDL_Entry::BLESSED_LOSS)
-                w50 = WDL_Entry::DRAW;
-            info.dtm50_result = wdl_to_result(w50);
-            info.dtm50 = signed_distance(r.dtm50, r.dtm50_wdl);
-        }
+    if (r.has_dtm50) {
+        info.has_dtm50 = true;
+        // Treat cursed/blessed as DRAW under the current 50-move counter.
+        chesstb::WDL_Entry w50 = r.dtm50_wdl;
+        if (w50 == chesstb::WDL_Entry::CURSED_WIN || w50 == chesstb::WDL_Entry::BLESSED_LOSS)
+            w50 = chesstb::WDL_Entry::DRAW;
+        info.dtm50_result = wdl_to_result(w50);
+        info.dtm50 = signed_distance(r.dtm50, r.dtm50_wdl);
     }
 
     if (timers) {
@@ -240,7 +234,7 @@ struct MoveEval {
 };
 
 inline std::optional<chess::Move> select_move(Timers* timers,
-                                               Probe_Tables& tables,
+                                               chesstb::Probe_Tables& tables,
                                                chess::Board& board,
                                                const ProbeInfo& current) {
     chess::Movelist moves;
@@ -265,7 +259,7 @@ inline std::optional<chess::Move> select_move(Timers* timers,
     struct WdlEval {
         chess::Move move;
         chess::Board child;
-        WDL_Entry wdl;
+        chesstb::WDL_Entry wdl;
         bool is_rep;
         int safe_mat;
         int exchange_score;
@@ -290,7 +284,7 @@ inline std::optional<chess::Move> select_move(Timers* timers,
         // is WDL WIN for the opponent, so the probe would add no information.
         e.wdl = (eff == Result::WIN || eff == Result::DRAW)
                     ? probe_wdl_board(timers, tables, child)
-                    : WDL_Entry::ILLEGAL;
+                    : chesstb::WDL_Entry::ILLEGAL;
         e.is_rep = child.isRepetition();
 
         int mat_after = material_diff(child, board.sideToMove());
@@ -319,7 +313,7 @@ inline std::optional<chess::Move> select_move(Timers* timers,
 
     if (eff == Result::WIN) {
         for (const auto& e : wdl_evals)
-            if (e.wdl == WDL_Entry::LOSE)
+            if (e.wdl == chesstb::WDL_Entry::LOSE)
                 candidates.push_back({&e, true});
     } else if (eff == Result::LOSS) {
         for (const auto& e : wdl_evals)
@@ -328,7 +322,7 @@ inline std::optional<chess::Move> select_move(Timers* timers,
         // DRAW: single pass.  Collect WDL DRAW children first; if none exist,
         // fall back to full distance probing of every child.
         for (const auto& e : wdl_evals)
-            if (e.wdl == WDL_Entry::DRAW)
+            if (e.wdl == chesstb::WDL_Entry::DRAW)
                 candidates.push_back({&e, false});
         if (candidates.empty())
             for (const auto& e : wdl_evals)

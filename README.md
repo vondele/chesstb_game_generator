@@ -12,7 +12,7 @@ non-canonical material orientations such as `KvKQ` alongside `KQvK`.
 
 ## Tablebase data
 
-The generator needs chesstb tables laid out with `wdl/`, `dtc/`, and `dtm50/` subdirectories. A convenient source is the Hugging Face bucket `noobpwnftw/chesstb`, which can be mounted read-only with `hf-mount` and a local SSD cache:
+The generator needs chesstb tables laid out with `wdl/`, `dtc/`, and `dtm50/` subdirectories, plus a `castling/` directory of the same layout for positions with castling rights. A convenient source is the Hugging Face bucket `chesstb/chesstb`, which can be mounted read-only with `hf-mount` and a local SSD cache:
 
 ```bash
 RUST_LOG=hf_mount=debug hf-mount \
@@ -22,7 +22,7 @@ RUST_LOG=hf_mount=debug hf-mount \
   --cache-size 50000000000 \
   --read-fetch-timeout-ms 120000 \
   --fuse-owner-only \
-  bucket noobpwnftw/chesstb /mnt/ssd/chesstb/hf
+  bucket chesstb/chesstb /mnt/ssd/chesstb/hf
 ```
 
 After mounting, point the generator at the mount point, or at the `full/` subdirectory if you want the raw generator output:
@@ -39,7 +39,8 @@ There is a size/speed trade-off between the two layouts. Probing the `full/` tab
 
 The build expects two sibling repositories to be checked out next to this project:
 
-- **[chesstb](https://github.com/noobpwnftw/chesstb)** — provides WDL, DTC, and DTM50 probing.
+- **[chesstb](https://github.com/noobpwnftw/chesstb)** — provides WDL, DTC, and DTM50 probing. Its `make lib`
+  (needs `python3`) writes the prober as two drop-in files, `chesstb.h` and `chesstb.cpp`.
 - **[chess-library](https://github.com/Disservin/chess-library)** — header-only board/move library.
 
 With the default Makefile settings the expected layout is:
@@ -59,9 +60,9 @@ From this directory run:
 make -j
 ```
 
-The default target builds `generate`. The Makefile compiles the driver and the
-chesstb probe sources separately from the bundled C compression libraries (LZ4,
-LZMA, zstd). `chess-library` is used as a header-only dependency.
+The default target builds `generate`. The Makefile runs chesstb's `make lib` and
+compiles the driver and `chesstb.cpp`. `chess-library` is used as a header-only
+dependency.
 
 If your checkouts live elsewhere, override the directory variables on the
 command line:
@@ -70,8 +71,6 @@ command line:
 make -j CHESS_LIBRARY_DIR=/path/to/chess-library CHESSTB_DIR=/path/to/chesstb
 ```
 
-A few warnings from the bundled C compression libraries are expected and can be
-ignored.
 
 ## Invocation
 
@@ -95,7 +94,7 @@ ignored.
 | `--cache MiB` | `8192` | Decoded block cache budget for chesstb. |
 | `--seed N` | random | RNG seed. |
 | `--endgame-counts FILE` | none | Per-material frequency weights. Listed materials are sampled with probability proportional to their count; unlisted pool materials receive weight 0. |
-| `--input-fens FILE` | none | Read starting FENs from a file (one per line) instead of generating random positions. Unsupported positions (e.g. castling rights, material not in pool) are skipped. Mutually exclusive with `--endgame-counts`. |
+| `--input-fens FILE` | none | Read starting FENs from a file (one per line) instead of generating random positions. Unsupported positions (material not in pool, or castling rights without a castling table) are skipped. Mutually exclusive with `--endgame-counts`. |
 
 ### Examples
 
@@ -154,24 +153,21 @@ with different `--concurrency` values still produces byte-identical output.
 
 ### Tablebase Probing
 
-`Probe_Tables` is configured with paths to the `wdl/`, `dtc/`, and `dtm50/`
-directories. The probe logic prefers DTM50 when available and falls back to DTC.
+`chesstb::Probe_Tables::init()` adds the `wdl/`, `dtc/`, and `dtm50/` directories,
+and those under `castling/` when present. The probe logic prefers DTM50 when
+available and falls back to DTC. A position chesstb's tables can't answer probes
+as WDL `ILLEGAL`.
 
-Table loading is lazy. The probe functions (`probe`, `probe_wdl`, etc.) are
-thread-safe and use chesstb's internal `cached_open()` cache: each missing key
-is built by one thread at a time and only the fully constructed object is
-published to the shared cache.
-
-Path setup (`add_*_path`) and cache invalidation (`scan_paths`,
-`invalidate_tables`) are **not** thread-safe, so this generator adds all paths
-before spawning worker threads and never mutates the table configuration during
-probing.
+Table loading is lazy, and the probe functions (`probe`, `probe_wdl`) are
+thread-safe. Path setup is not, so this generator adds all paths before spawning
+worker threads and never changes the table configuration during probing.
 
 ### Material Pool
 
-Materials are generated recursively as strings like `KQvK` or `KRBvKNP`. Only
-plain pawns (`P`/`p`) are emitted; the frozen-pair pawn marker `p` used by some
-checkers-like tablebase notations is not supported.
+Materials are generated recursively as strings like `KQvK` or `KRBvKNP`, with
+plain pawns only. A position with an opposing pawn pair (a white and a black
+pawn on one file, white below) is probed in chesstb's pair table; the prober
+picks that table itself.
 
 Availability is determined by canonical tablebase name. The generator converts
 each material string to a chesstb `Piece_Config` and calls `Piece_Config::name()`,
@@ -217,37 +213,22 @@ remain visible.
 ## Benchmarks
 
 All runs below use `--max-pieces 6 --min-plies 5 --seed 123` with the
-rule-50-aware DTM50 move selector. They were executed against a local copy of
-the shipping-format tables (`wdl/`, `dtc/`, `dtm50/`) and were preceded by a
-single shared 1000-game warm-up run (`--count 1000 --concurrency 8 --cache 8192`)
-to populate the OS page cache.
+rule-50-aware DTM50 move selector, on an NVIDIA GB10 (20 Arm cores, 128 GB)
+against a local copy of the shipping-format tables (`wdl/`, `dtc/`, `dtm50/`).
+They were preceded by a single 1000-game warm-up run (`--count 1000
+--concurrency 8 --cache 8192`, 420 s from cold) to populate the OS page cache.
 
 | Count | Concurrency | `--cache` | Wall time | Distance probe throughput | Latency | Peak RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| 100 | 8 | 8192 MiB | 27.0 s | 199.0 probes/s | 5.026 ms | 19.2 GB |
-| 500 | 8 | 8192 MiB | 156.2 s | 147.1 probes/s | 6.798 ms | 46.7 GB |
-| 1000 | 4 | 8192 MiB | 412.3 s | 162.0 probes/s | 6.172 ms | 54.8 GB |
-| 1000 | 8 | 8192 MiB | 241.6 s | 152.1 probes/s | 6.576 ms | 59.3 GB |
-| 1000 | 16 | 8192 MiB | 162.9 s | 136.1 probes/s | 7.345 ms | 65.6 GB |
-| 1000 | 8 | 32768 MiB | 202.9 s | 169.7 probes/s | 5.892 ms | 113.5 GB |
-| 5000 | 8 | 8192 MiB | 947.0 s | 180.3 probes/s | 5.547 ms | 116.0 GB |
-| 5000 | 8 | 32768 MiB | 830.0 s | 202.9 probes/s | 4.929 ms | 116.6 GB |
-| 10000 | 8 | 32768 MiB | 1493.9 s | 222.9 probes/s | 4.485 ms | 116.0 GB |
+| 100 | 8 | 8192 MiB | 17.1 s | 322.2 probes/s | 3.104 ms | 16.3 GB |
+| 1000 | 8 | 8192 MiB | 160.7 s | 225.9 probes/s | 4.427 ms | 49.5 GB |
+| 1000 | 8 | 32768 MiB | 126.1 s | 273.8 probes/s | 3.652 ms | 79.7 GB |
 
 Notes:
 
 - Move selection uses the rule-50-aware DTM50 metric, so mate announcements in
   the PGN match the actual game outcome.
-- 1000-game outputs are byte-identical across thread counts and cache sizes for
-  the same code version (verified with `diff` between 4, 8, and 16 threads and
-  between 8 GiB and 32 GiB caches).
+- The 1000-game outputs are byte-identical across cache sizes.
 - The WDL-first move filter skips most distance probes for losing positions and
-  many distance probes for drawn positions. The reported distance-probe latency
-  is higher than a naive full-probe version because the remaining distance
-  probes face more cache pressure from the cheap WDL probes; the net effect is
-  still a wall-time reduction for mixed `W,D,L` workloads.
-- Using 16 threads lowers per-probe throughput compared to 8 threads due to
-  scheduler contention, even though wall time improves.
-- A larger `--cache` improves throughput at the cost of memory. RSS flattens out
-  once the working set is cached; the 5000- and 10000-game runs use ~116 GB
-  regardless of game count.
+  many for drawn positions.
+- A larger `--cache` improves throughput at the cost of memory.

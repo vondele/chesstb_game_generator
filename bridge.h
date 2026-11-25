@@ -1,51 +1,43 @@
 #pragma once
 
-// Bridge between chess-library and chesstb types.
-//
-// chesstb uses global-namespace types (Position, Move, Piece, Square, Color).
-// chess-library uses chess::Board, chess::Move, chess::Piece, etc.
+// Bridge between chess-library and chesstb types. Both number squares a1 = 0.
 
 #include <chess.hpp>
 
-#include "chess/chess.h"
-#include "chess/position.h"
+#include "chesstb.h"
 
 namespace bridge {
 
-// chess::Piece::underlying ordering:
-//   WHITEPAWN=0, WHITEKNIGHT=1, WHITEBISHOP=2, WHITEROOK=3, WHITEQUEEN=4, WHITEKING=5,
-//   BLACKPAWN=6, BLACKKNIGHT=7, BLACKBISHOP=8, BLACKROOK=9, BLACKQUEEN=10, BLACKKING=11
-// chesstb Piece ordering:
-//   WHITE_KING=1, WHITE_QUEEN=2, WHITE_ROOK=3, WHITE_BISHOP=4, WHITE_KNIGHT=5, WHITE_PAWN=6,
-//   BLACK_KING=9, BLACK_QUEEN=10, BLACK_ROOK=11, BLACK_BISHOP=12, BLACK_KNIGHT=13, BLACK_PAWN=14
-inline Piece to_chesstb_piece(chess::Piece p) {
-    if (p == chess::Piece::NONE) return PIECE_NONE;
-    static constexpr Piece map[12] = {
-        WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, WHITE_KING,
-        BLACK_PAWN, BLACK_KNIGHT, BLACK_BISHOP, BLACK_ROOK, BLACK_QUEEN, BLACK_KING,
-    };
-    return map[static_cast<int>(p.internal())];
+// Both order piece types P, N, B, R, Q, K: chess-library from 0, chesstb from 1.
+inline chesstb::Piece to_chesstb_piece(chess::PieceType pt, chess::Color c) {
+    return chesstb::piece_make(static_cast<chesstb::Color>(static_cast<int>(c.internal())),
+                               static_cast<chesstb::Piece_Type>(static_cast<int>(pt.internal()) + 1));
 }
 
-inline Square to_chesstb_square(chess::Square sq) {
-    return static_cast<Square>(sq.index());
+inline chesstb::Square ep_square(const chess::Board& board) {
+    const chess::Square ep = board.enpassantSq();
+    return ep == chess::Square::NO_SQ ? chesstb::SQ_END : static_cast<chesstb::Square>(ep.index());
 }
 
-inline Color to_chesstb_color(chess::Color c) {
-    return static_cast<Color>(static_cast<int>(c.internal()));
-}
-
-inline Position to_chesstb_position(const chess::Board& board) {
-    Position pos;
+inline chesstb::Position to_chesstb_position(const chess::Board& board) {
+    chesstb::Position pos;
     pos.clear();
-    for (int i = 0; i < 64; ++i) {
-        chess::Square sq(i);
-        chess::Piece p = board.at(sq);
-        if (p != chess::Piece::NONE) {
-            pos.put_piece(to_chesstb_piece(p), to_chesstb_square(sq));
-        }
+    for (chess::Color c : {chess::Color::WHITE, chess::Color::BLACK}) {
+        for (auto pt : {chess::PieceType::PAWN, chess::PieceType::KNIGHT, chess::PieceType::BISHOP,
+                        chess::PieceType::ROOK, chess::PieceType::QUEEN, chess::PieceType::KING})
+            pos.m_pieces[to_chesstb_piece(pt, c)] = chesstb::Bitboard(board.pieces(pt, c).getBits());
+        pos.m_pieces[chesstb::piece_occupy(static_cast<chesstb::Color>(static_cast<int>(c.internal())))] =
+            chesstb::Bitboard(board.us(c).getBits());
     }
-    pos.set_turn(to_chesstb_color(board.sideToMove()));
+    pos.set_turn(static_cast<chesstb::Color>(static_cast<int>(board.sideToMove().internal())));
+
+    const auto cr = board.castlingRights();
+    for (chess::Color c : {chess::Color::WHITE, chess::Color::BLACK})
+        for (auto side : {chess::Board::CastlingRights::Side::KING_SIDE,
+                          chess::Board::CastlingRights::Side::QUEEN_SIDE})
+            if (cr.has(c, side))
+                pos.m_castling_rooks |= static_cast<chesstb::Square>(
+                    chess::Square(cr.getRookFile(c, side), chess::Rank::rank(chess::Rank::RANK_1, c)).index());
     return pos;
 }
 

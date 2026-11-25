@@ -1,5 +1,5 @@
 #include <chess.hpp>
-#include <probe/probe.h>
+#include "chesstb.h"
 
 #include "evaluator.h"
 #include "material.h"
@@ -54,7 +54,7 @@ namespace {
 
 void advance_slot_in_material(SlotState& state,
                               const std::string& key,
-                              Probe_Tables& tables,
+                              chesstb::Probe_Tables& tables,
                               Timers& timers,
                               std::vector<SlotState>& finished,
                               std::map<std::string, std::vector<SlotState>>& other_children) {
@@ -102,7 +102,7 @@ void process_batch(const std::string& key,
                    const Options& opt,
                    const std::vector<std::string>& materials,
                    const std::set<char>& allowed,
-                   Probe_Tables& tables,
+                   chesstb::Probe_Tables& tables,
                    MaterialQueues& queues,
                    SlotWriter& writer,
                    Timers& timers,
@@ -155,7 +155,7 @@ void process_batch(const std::string& key,
 void worker_loop(const Options& opt,
                  const std::vector<std::string>& materials,
                  const std::set<char>& allowed,
-                 Probe_Tables& tables,
+                 chesstb::Probe_Tables& tables,
                  MaterialQueues& queues,
                  SlotWriter& writer,
                  Timers& timers,
@@ -227,11 +227,13 @@ int main(int argc, char** argv) {
                   << opt.results << "] (min " << opt.min_plies
                   << " plies) on " << opt.concurrency << " cores...\n";
 
-        Probe_Tables tables;
+        chesstb::Probe_Tables tables;
         if (!tables.init(opt.chesstb_dir)) {
             std::cerr << "Error: No chesstb tables found under " << opt.chesstb_dir << "\n";
             return 1;
         }
+        if (fs::is_directory(opt.chesstb_dir / "castling"))
+            tables.init(opt.chesstb_dir / "castling");
         tables.set_block_cache_bytes(opt.cache_mib * 1024 * 1024);
 
         if (!opt.output.parent_path().empty()) {
